@@ -16,13 +16,26 @@ android {
         versionName = "1.0"
     }
 
+    // Kunci tetap supaya APK versi baru bisa menimpa versi lama tanpa uninstall.
+    signingConfigs {
+        create("fixed") {
+            storeFile = file("release.jks")
+            storePassword = "galeriku123"
+            keyAlias = "galeriku"
+            keyPassword = "galeriku123"
+        }
+    }
+
     buildTypes {
+        // Build "debug" dibuat tidak-debuggable agar secepat aplikasi rilis.
+        // Nama tetap debug supaya workflow GitHub tidak perlu diubah.
+        debug {
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Ditandatangani kunci debug agar bisa langsung dipasang di HP sendiri.
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("fixed")
         }
     }
 
@@ -55,4 +68,5 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-video:2.7.0")
 }

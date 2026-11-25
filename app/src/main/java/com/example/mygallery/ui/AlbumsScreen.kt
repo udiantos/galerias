@@ -41,8 +41,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import com.example.mygallery.data.thumbRequest
 import coil.compose.AsyncImage
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
@@ -81,7 +79,7 @@ fun AlbumsScreen(vm: GalleryViewModel, onOpen: (AlbumRef) -> Unit) {
                 }
             }
             items(vm.albums.keys.toList(), key = { "a:$it" }) { name ->
-                val list = vm.albumItems(name)
+                val list = remember(vm.visible, vm.albums) { vm.albumItems(name) }
                 AlbumCard(name, list.size, list.firstOrNull()) { onOpen(AlbumRef(name, true)) }
             }
 
@@ -130,12 +128,7 @@ private fun AlbumCard(name: String, count: Int, cover: MediaItem?, onClick: () -
             contentAlignment = Alignment.Center,
         ) {
             if (cover != null) {
-                AsyncImage(
-                    model = thumbRequest(LocalContext.current, cover, 256),
-                    contentDescription = name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                ThumbImage(cover, Modifier.fillMaxSize())
             } else {
                 Icon(
                     Icons.Filled.PhotoAlbum,
@@ -168,7 +161,9 @@ fun AlbumDetailScreen(
     onBack: () -> Unit,
     onRenamed: (String) -> Unit,
 ) {
-    val items = if (ref.custom) vm.albumItems(ref.name) else vm.folderItems(ref.name)
+    val items = remember(vm.visible, vm.albums, ref) {
+        if (ref.custom) vm.albumItems(ref.name) else vm.folderItems(ref.name)
+    }
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }

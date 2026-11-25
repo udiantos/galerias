@@ -37,8 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import com.example.mygallery.data.thumbRequest
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -80,17 +78,10 @@ fun Thumb(
             .aspectRatio(1f)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
-        val ctx = LocalContext.current
-        val request = remember(item.id) { thumbRequest(ctx, item, 256) }
-        AsyncImage(
-            model = request,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+        ThumbImage(
+            item = item,
             modifier = if (selected) {
-                Modifier
-                    .fillMaxSize()
-                    .padding(10.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                Modifier.fillMaxSize().padding(10.dp).clip(RoundedCornerShape(8.dp))
             } else {
                 Modifier.fillMaxSize()
             },

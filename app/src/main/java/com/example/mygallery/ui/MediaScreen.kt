@@ -58,7 +58,9 @@ fun MediaScreen(
     topActions: @Composable RowScope.() -> Unit = {},
 ) {
     var selected by remember { mutableStateOf(setOf<Long>()) }
-    val selectedItems = remember(items, selected) { items.filter { it.id in selected } }
+    val selectedItems = remember(items, selected) {
+        if (selected.isEmpty()) emptyList<MediaItem>() else items.filter { it.id in selected }
+    }
     val selecting = selected.isNotEmpty()
 
     BackHandler(enabled = selecting) { selected = emptySet() }

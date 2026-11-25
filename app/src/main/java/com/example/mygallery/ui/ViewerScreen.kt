@@ -74,9 +74,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
-import com.example.mygallery.data.thumbRequest
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -102,7 +99,10 @@ fun ViewerScreen(
     onClose: () -> Unit,
 ) {
     val ctx = LocalContext.current
-    var list by remember { mutableStateOf(req.items) }
+    // Daftar biasa (tidak dimutasi satu per satu): item yang dibuang/dipulihkan/dihapus langsung tersaring.
+    val list = remember(req.items, vm.trash, vm.gone) {
+        req.items.filter { it.id !in vm.gone && ((it.id in vm.trash) == req.trash) }
+    }
     val pager = rememberPagerState(
         initialPage = req.index.coerceIn(0, (req.items.size - 1).coerceAtLeast(0))
     ) { list.size }
@@ -113,19 +113,6 @@ fun ViewerScreen(
 
     BackHandler(onBack = onClose)
 
-    // Sinkronkan daftar dengan keadaan terbaru (misal setelah dihapus / dibuang ke sampah / dipulihkan).
-    LaunchedEffect(vm.media, vm.trash) {
-        val media = vm.media
-        val trash = vm.trash
-        val current = list
-        // Hitung di thread background, lalu ganti list sekali saja (bukan hapus satu-satu).
-        val updated = withContext(Dispatchers.Default) {
-            val existing = HashSet<Long>(media.size * 2)
-            for (m in media) existing.add(m.id)
-            current.filter { it.id in existing && (it.id in trash) == req.trash }
-        }
-        if (updated.size != current.size) list = updated
-    }
     LaunchedEffect(list.size) { if (list.isEmpty()) onClose() }
     LaunchedEffect(pager.currentPage) { zoomed = false }
 
@@ -268,7 +255,7 @@ private fun VideoPage(item: MediaItem, onTap: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = thumbRequest(ctx, item, 1024),
+            model = item.uri,
             contentDescription = item.name,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),

@@ -161,29 +161,41 @@ private fun GalleryMain(vm: GalleryViewModel) {
     var openAlbum by remember { mutableStateOf<AlbumRef?>(null) }
     var pickerItems by remember { mutableStateOf<List<MediaItem>?>(null) }
 
+    val continueDelete = remember { arrayOfNulls<() -> Unit>(1) }
+
     val deleteLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             vm.onPermanentlyDeleted()
+            continueDelete[0]?.invoke()
         } else {
             vm.pendingDelete = emptyList()
+            vm.deleteQueue = emptyList()
         }
     }
+
+    // Android membatasi jumlah file per permintaan hapus, jadi dikerjakan per potongan.
+    fun launchNextDelete() {
+        val next = vm.deleteQueue.firstOrNull() ?: return
+        vm.deleteQueue = vm.deleteQueue.drop(1)
+        vm.pendingDelete = next.map { it.id }
+        try {
+            val request = MediaStore.createDeleteRequest(context.contentResolver, next.map { it.uri })
+            deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        } catch (e: Exception) {
+            vm.pendingDelete = emptyList()
+            vm.deleteQueue = emptyList()
+            scope.launch { snackbar.showSnackbar("Gagal menghapus: ${e.message}") }
+        }
+    }
+    continueDelete[0] = { launchNextDelete() }
 
     // Hapus permanen: Android menampilkan dialog konfirmasi bawaan sistem.
     fun doDeleteForever(items: List<MediaItem>) {
         if (items.isEmpty()) return
-        // Satu permintaan ke sistem dibatasi supaya tidak macet / error kalau jumlahnya ribuan.
-        val batch = items.take(500)
-        if (batch.size < items.size) {
-            scope.launch {
-                snackbar.showSnackbar("Menghapus ${batch.size} dari ${items.size}. Ulangi untuk sisanya.")
-            }
-        }
-        vm.pendingDelete = batch.map { it.id }
-        val request = MediaStore.createDeleteRequest(context.contentResolver, batch.map { it.uri })
-        deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+        vm.deleteQueue = items.chunked(1500)
+        launchNextDelete()
     }
 
     // Hapus sesuai pengaturan: ke sampah (bisa diurungkan) atau permanen.
@@ -285,14 +297,6 @@ private fun GalleryMain(vm: GalleryViewModel) {
             }
         }
 
-        SnackbarHost(
-            hostState = snackbar,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 88.dp),
-        )
-
         viewer?.let { request ->
             ViewerScreen(
                 req = request,
@@ -301,6 +305,15 @@ private fun GalleryMain(vm: GalleryViewModel) {
                 onClose = { viewer = null },
             )
         }
+
+        // Di atas viewer, supaya tombol "Urungkan" tetap terlihat.
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 88.dp),
+        )
     }
 
     pickerItems?.let { items ->

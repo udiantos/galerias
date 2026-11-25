@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,20 +27,20 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.mygallery.data.thumbRequest
-import coil.compose.AsyncImage
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private fun toggleDup(selected: Set<Long>, group: List<MediaItem>, id: Long): Set<Long> {
     if (id in selected) return selected - id
@@ -54,13 +53,22 @@ private fun toggleDup(selected: Set<Long>, group: List<MediaItem>, id: Long): Se
 @Composable
 fun CleanScreen(vm: GalleryViewModel, actions: GalleryActions, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    val groups = remember(vm.visible) { vm.findDuplicates() }
+    val source = vm.visible
+
+    // Pencarian duplikat berat, jadi dikerjakan di thread latar.
+    val groupsState = produceState<List<List<MediaItem>>?>(initialValue = null, source) {
+        value = withContext(Dispatchers.Default) { vm.findDuplicates(source) }
+    }
+    val groups = groupsState.value
+
     // Bawaan: buang semua kecuali yang paling tua di tiap kelompok.
     var selected by remember(groups) {
-        mutableStateOf(groups.flatMap { g -> g.drop(1) }.map { it.id }.toSet())
+        mutableStateOf(
+            groups?.flatMap { g -> g.drop(1) }?.map { it.id }?.toSet() ?: emptySet<Long>()
+        )
     }
     val chosen = remember(groups, selected) {
-        groups.flatten().filter { it.id in selected }
+        groups?.flatten()?.filter { it.id in selected } ?: emptyList<MediaItem>()
     }
     val chosenBytes = chosen.sumOf { it.size }
 
@@ -74,7 +82,11 @@ fun CleanScreen(vm: GalleryViewModel, actions: GalleryActions, onBack: () -> Uni
             },
         )
 
-        if (groups.isEmpty()) {
+        if (groups == null) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("Mencari duplikat…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (groups.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     "Tidak ada duplikat ditemukan",
@@ -90,7 +102,7 @@ fun CleanScreen(vm: GalleryViewModel, actions: GalleryActions, onBack: () -> Uni
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             LazyColumn(Modifier.weight(1f)) {
-                itemsIndexed(groups) { _, group ->
+                items(groups) { group ->
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Text(
                             "${group.size} file • ${Formatter.formatShortFileSize(ctx, group[0].size)} per file",
@@ -135,12 +147,7 @@ private fun DupThumb(item: MediaItem, remove: Boolean, onClick: () -> Unit) {
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
     ) {
-        AsyncImage(
-            model = thumbRequest(LocalContext.current, item, 256),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        ThumbImage(item, Modifier.fillMaxSize())
         if (remove) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
         }

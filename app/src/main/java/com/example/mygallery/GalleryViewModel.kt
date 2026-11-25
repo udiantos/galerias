@@ -1,7 +1,6 @@
 package com.example.mygallery
 
 import android.app.Application
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -11,26 +10,29 @@ import com.example.mygallery.data.AppSettings
 import com.example.mygallery.data.LocalStore
 import com.example.mygallery.data.MediaItem
 import com.example.mygallery.data.MediaRepository
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
-import java.util.concurrent.Executors
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Executors
 
 class GalleryViewModel(app: Application) : AndroidViewModel(app) {
+
+    private class Derived(
+        val visible: List<MediaItem>,
+        val favorites: List<MediaItem>,
+        val trash: List<MediaItem>,
+        val folders: List<Pair<String, List<MediaItem>>>,
+    )
 
     private val repo = MediaRepository(app)
     private val store = LocalStore(app)
 
-    // Satu thread khusus untuk menulis ke penyimpanan, supaya UI tidak ikut tertahan.
-    private val ioScope = CoroutineScope(
-        SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-    )
-    private fun persist(block: () -> Unit) { ioScope.launch { block() } }
-    private var refreshJob: Job? = null
+    // Penulisan ke penyimpanan dilakukan berurutan di thread lain, tidak di thread utama.
+    private val ioSerial = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private var rebuildJob: Job? = null
+    private var refreshing = false
 
     var media by mutableStateOf<List<MediaItem>>(emptyList())
         private set
@@ -45,75 +47,125 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     var settings by mutableStateOf(store.loadSettings())
         private set
 
-    /** id media yang sedang menunggu konfirmasi hapus permanen dari sistem Android. */
+    // Daftar turunan, dihitung di thread latar lalu dipasang sekaligus.
+    var visible by mutableStateOf<List<MediaItem>>(emptyList())
+        private set
+    var favoriteItems by mutableStateOf<List<MediaItem>>(emptyList())
+        private set
+    var trashItems by mutableStateOf<List<MediaItem>>(emptyList())
+        private set
+    var folders by mutableStateOf<List<Pair<String, List<MediaItem>>>>(emptyList())
+        private set
+
+    /** id yang sudah dihapus permanen pada sesi ini (dipakai viewer supaya langsung hilang). */
+    var gone by mutableStateOf<Set<Long>>(emptySet())
+        private set
+
+    /** Antrean hapus permanen per potongan, karena Android membatasi jumlah file per permintaan. */
+    var deleteQueue: List<List<MediaItem>> = emptyList()
     var pendingDelete: List<Long> = emptyList()
-
-    val visible: List<MediaItem> by derivedStateOf {
-        media.filter { it.id !in trash }
-    }
-
-    val favoriteItems: List<MediaItem> by derivedStateOf {
-        visible.filter { it.id in favorites }
-    }
-
-    val trashItems: List<MediaItem> by derivedStateOf {
-        if (trash.isEmpty()) return@derivedStateOf emptyList<MediaItem>()
-        media.filter { it.id in trash }.sortedByDescending { trash[it.id] ?: 0L }
-    }
-
-    val folders: List<Pair<String, List<MediaItem>>> by derivedStateOf {
-        visible
-            .groupBy { it.folder.ifBlank { "Lainnya" } }
-            .toList()
-            .sortedByDescending { it.second.size }
-    }
 
     // ---------------- Memuat ----------------
 
     fun refresh() {
-        refreshJob?.cancel()
-        refreshJob = viewModelScope.launch {
-            val list = withContext(Dispatchers.IO) { repo.load() }
-            media = list
-            loaded = true
-            prune(list)
+        if (refreshing) return
+        refreshing = true
+        viewModelScope.launch {
+            try {
+                val list = withContext(Dispatchers.IO) { repo.load() }
+                val old = media
+                val same = loaded && withContext(Dispatchers.Default) { list == old }
+                if (!same) {
+                    val ids = withContext(Dispatchers.Default) {
+                        val s = HashSet<Long>(list.size * 2)
+                        for (m in list) s.add(m.id)
+                        s
+                    }
+                    media = list
+                    loaded = true
+                    if (list.isNotEmpty()) prune(ids)
+                    rebuild()
+                }
+            } finally {
+                refreshing = false
+            }
         }
     }
 
     /** Buang jejak id yang filenya sudah tidak ada lagi. */
-    private fun prune(list: List<MediaItem>) {
-        if (list.isEmpty()) return
-        val ids = HashSet<Long>(list.size * 2)
-        for (m in list) ids.add(m.id)
-
+    private fun prune(ids: Set<Long>) {
         val f = favorites.filter { it in ids }.toSet()
         if (f.size != favorites.size) {
             favorites = f
-            run { val v = f; persist { store.saveFavorites(v) } }
+            persistFavorites()
         }
         val t = trash.filterKeys { it in ids }
         if (t.size != trash.size) {
             trash = t
-            run { val v = t; persist { store.saveTrash(v) } }
+            persistTrash()
         }
         val a = albums.mapValues { (_, v) -> v.filter { it in ids } }
         if (a != albums) {
             albums = a
-            run { val v = a; persist { store.saveAlbums(v) } }
+            persistAlbums()
         }
+    }
+
+    private fun rebuild() {
+        val m = media
+        val t = trash
+        val f = favorites
+        rebuildJob?.cancel()
+        rebuildJob = viewModelScope.launch {
+            val d = withContext(Dispatchers.Default) {
+                val vis = m.filter { it.id !in t }
+                Derived(
+                    visible = vis,
+                    favorites = vis.filter { it.id in f },
+                    trash = m.filter { it.id in t }.sortedByDescending { t[it.id] ?: 0L },
+                    folders = vis
+                        .groupBy { it.folder.ifBlank { "Lainnya" } }
+                        .toList()
+                        .sortedByDescending { it.second.size },
+                )
+            }
+            visible = d.visible
+            favoriteItems = d.favorites
+            trashItems = d.trash
+            folders = d.folders
+        }
+    }
+
+    // ---------------- Penyimpanan (di thread latar) ----------------
+
+    private fun persistFavorites() {
+        val v = favorites
+        viewModelScope.launch(ioSerial) { store.saveFavorites(v) }
+    }
+
+    private fun persistAlbums() {
+        val v = albums
+        viewModelScope.launch(ioSerial) { store.saveAlbums(v) }
+    }
+
+    private fun persistTrash() {
+        val v = trash
+        viewModelScope.launch(ioSerial) { store.saveTrash(v) }
     }
 
     // ---------------- Favorit ----------------
 
     fun toggleFavorite(item: MediaItem) {
         favorites = if (item.id in favorites) favorites - item.id else favorites + item.id
-        run { val v = favorites; persist { store.saveFavorites(v) } }
+        persistFavorites()
+        rebuild()
     }
 
     fun setFavorite(items: List<MediaItem>, value: Boolean) {
         val ids = items.map { it.id }
         favorites = if (value) favorites + ids else favorites - ids.toSet()
-        run { val v = favorites; persist { store.saveFavorites(v) } }
+        persistFavorites()
+        rebuild()
     }
 
     // ---------------- Album ----------------
@@ -129,21 +181,21 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun createAlbum(name: String): Boolean {
         if (name.isBlank() || name in albums) return false
         albums = albums + (name to emptyList<Long>())
-        run { val v = albums; persist { store.saveAlbums(v) } }
+        persistAlbums()
         return true
     }
 
     fun addToAlbum(name: String, items: List<MediaItem>) {
         val current = albums[name] ?: emptyList()
         albums = albums + (name to (current + items.map { it.id }).distinct())
-        run { val v = albums; persist { store.saveAlbums(v) } }
+        persistAlbums()
     }
 
     fun removeFromAlbum(name: String, items: List<MediaItem>) {
         val remove = items.map { it.id }.toSet()
         val current = albums[name] ?: return
         albums = albums + (name to current.filter { it !in remove })
-        run { val v = albums; persist { store.saveAlbums(v) } }
+        persistAlbums()
     }
 
     fun renameAlbum(old: String, new: String): Boolean {
@@ -151,26 +203,30 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         if (new == old) return true
         if (new in albums) return false
         albums = albums.entries.associate { (if (it.key == old) new else it.key) to it.value }
-        run { val v = albums; persist { store.saveAlbums(v) } }
+        persistAlbums()
         return true
     }
 
     fun deleteAlbum(name: String) {
         albums = albums - name
-        run { val v = albums; persist { store.saveAlbums(v) } }
+        persistAlbums()
     }
 
     // ---------------- Sampah ----------------
 
     fun moveToTrash(items: List<MediaItem>) {
         val now = System.currentTimeMillis()
-        trash = trash + items.associate { it.id to now }
-        run { val v = trash; persist { store.saveTrash(v) } }
+        val add = HashMap<Long, Long>(items.size * 2)
+        for (i in items) add[i.id] = now
+        trash = trash + add
+        persistTrash()
+        rebuild()
     }
 
     fun restore(items: List<MediaItem>) {
         trash = trash - items.map { it.id }.toSet()
-        run { val v = trash; persist { store.saveTrash(v) } }
+        persistTrash()
+        rebuild()
     }
 
     /** Item di sampah yang sudah melewati batas hari pada pengaturan. */
@@ -183,25 +239,26 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Dipanggil setelah pengguna menyetujui dialog hapus permanen dari Android. */
     fun onPermanentlyDeleted() {
-        val gone = pendingDelete.toSet()
+        val goneNow = pendingDelete.toSet()
         pendingDelete = emptyList()
-        if (gone.isEmpty()) return
+        if (goneNow.isEmpty()) return
 
-        media = media.filter { it.id !in gone }
-        trash = trash - gone
-        favorites = favorites - gone
-        albums = albums.mapValues { (_, v) -> v.filter { it !in gone } }
-        run { val v = trash; persist { store.saveTrash(v) } }
-        run { val v = favorites; persist { store.saveFavorites(v) } }
-        run { val v = albums; persist { store.saveAlbums(v) } }
-        refresh()
+        gone = gone + goneNow
+        media = media.filter { it.id !in goneNow }
+        trash = trash - goneNow
+        favorites = favorites - goneNow
+        albums = albums.mapValues { (_, v) -> v.filter { it !in goneNow } }
+        persistTrash()
+        persistFavorites()
+        persistAlbums()
+        rebuild()
     }
 
     // ---------------- Duplikat ----------------
 
-    /** Kelompok file yang kemungkinan sama (ukuran + resolusi + durasi identik). */
-    fun findDuplicates(): List<List<MediaItem>> =
-        visible
+    /** Kelompok file yang kemungkinan sama (ukuran + resolusi + durasi identik). Berat: panggil di thread latar. */
+    fun findDuplicates(source: List<MediaItem>): List<List<MediaItem>> =
+        source
             .filter { it.size > 0 }
             .groupBy { "${it.isVideo}|${it.size}|${it.width}|${it.height}|${it.durationMs}" }
             .values
@@ -213,6 +270,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         settings = transform(settings)
-        run { val v = settings; persist { store.saveSettings(v) } }
+        store.saveSettings(settings)
     }
 }

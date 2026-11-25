@@ -36,7 +36,8 @@ Hasil: `app/build/outputs/apk/debug/app-debug.apk`
 ## Catatan
 
 - Butuh Android 11 (API 30) ke atas.
-- APK yang dihasilkan adalah build debug (ditandatangani kunci debug), cukup untuk dipasang di HP sendiri.
+- APK ditandatangani dengan kunci tetap (`app/release.jks`), jadi versi baru bisa menimpa versi lama tanpa uninstall. Jangan pakai kunci ini untuk aplikasi yang dipublikasikan.
+- Thumbnail diambil dari cache thumbnail sistem dan dimuat hanya untuk item yang terlihat, supaya scroll ringan walau foto puluhan ribu.
 - "Sampah" bersifat di dalam aplikasi: file asli tetap ada di HP sampai dihapus permanen, jadi aplikasi galeri lain masih bisa menampilkannya.
 - Penghapusan permanen selalu memunculkan dialog konfirmasi dari Android. Itu aturan sistem, tidak bisa dilewati.
 - Favorit, album, dan sampah disimpan lokal di aplikasi. Kalau aplikasi di-uninstall, data itu hilang (foto aslinya tidak).
