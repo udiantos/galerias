@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Nomor build dari GitHub Actions; dipakai sebagai versionCode agar tiap update bisa menimpa yang lama.
+val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toIntOrNull() ?: 1
+
 android {
     namespace = "com.example.mygallery"
     compileSdk = 35
@@ -12,8 +15,18 @@ android {
         applicationId = "com.example.mygallery"
         minSdk = 30
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = runNumber
+        versionName = "1.$runNumber"
+    }
+
+    signingConfigs {
+        // Kunci tetap (disimpan di repo) supaya update selalu bisa menimpa versi lama.
+        create("galeriku") {
+            storeFile = file("galeriku.keystore")
+            storePassword = "android"
+            keyAlias = "galeriku"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -21,8 +34,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Ditandatangani kunci debug agar bisa langsung dipasang di HP sendiri.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("galeriku")
         }
     }
 
