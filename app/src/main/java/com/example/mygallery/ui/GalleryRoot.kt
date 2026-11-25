@@ -174,8 +174,15 @@ private fun GalleryMain(vm: GalleryViewModel) {
     // Hapus permanen: Android menampilkan dialog konfirmasi bawaan sistem.
     fun doDeleteForever(items: List<MediaItem>) {
         if (items.isEmpty()) return
-        vm.pendingDelete = items.map { it.id }
-        val request = MediaStore.createDeleteRequest(context.contentResolver, items.map { it.uri })
+        // Satu permintaan ke sistem dibatasi supaya tidak macet / error kalau jumlahnya ribuan.
+        val batch = items.take(500)
+        if (batch.size < items.size) {
+            scope.launch {
+                snackbar.showSnackbar("Menghapus ${batch.size} dari ${items.size}. Ulangi untuk sisanya.")
+            }
+        }
+        vm.pendingDelete = batch.map { it.id }
+        val request = MediaStore.createDeleteRequest(context.contentResolver, batch.map { it.uri })
         deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
     }
 

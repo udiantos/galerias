@@ -41,6 +41,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import com.example.mygallery.data.thumbRequest
 import coil.compose.AsyncImage
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
@@ -129,7 +131,7 @@ private fun AlbumCard(name: String, count: Int, cover: MediaItem?, onClick: () -
         ) {
             if (cover != null) {
                 AsyncImage(
-                    model = cover.uri,
+                    model = thumbRequest(LocalContext.current, cover, 256),
                     contentDescription = name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

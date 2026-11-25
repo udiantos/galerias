@@ -1,7 +1,9 @@
 package com.example.mygallery.data
 
 import android.net.Uri
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class MediaItem(
     val id: Long,
     val uri: Uri,

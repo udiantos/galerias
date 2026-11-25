@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.mygallery.data.thumbRequest
 import coil.compose.AsyncImage
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
@@ -135,8 +136,8 @@ private fun DupThumb(item: MediaItem, remove: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick)
     ) {
         AsyncImage(
-            model = item.uri,
-            contentDescription = item.name,
+            model = thumbRequest(LocalContext.current, item, 256),
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )

@@ -11,7 +11,12 @@ import com.example.mygallery.data.AppSettings
 import com.example.mygallery.data.LocalStore
 import com.example.mygallery.data.MediaItem
 import com.example.mygallery.data.MediaRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import java.util.concurrent.Executors
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -19,6 +24,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = MediaRepository(app)
     private val store = LocalStore(app)
+
+    // Satu thread khusus untuk menulis ke penyimpanan, supaya UI tidak ikut tertahan.
+    private val ioScope = CoroutineScope(
+        SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    )
+    private fun persist(block: () -> Unit) { ioScope.launch { block() } }
+    private var refreshJob: Job? = null
 
     var media by mutableStateOf<List<MediaItem>>(emptyList())
         private set
@@ -45,6 +57,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val trashItems: List<MediaItem> by derivedStateOf {
+        if (trash.isEmpty()) return@derivedStateOf emptyList<MediaItem>()
         media.filter { it.id in trash }.sortedByDescending { trash[it.id] ?: 0L }
     }
 
@@ -58,7 +71,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- Memuat ----------------
 
     fun refresh() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             val list = withContext(Dispatchers.IO) { repo.load() }
             media = list
             loaded = true
@@ -75,17 +89,17 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         val f = favorites.filter { it in ids }.toSet()
         if (f.size != favorites.size) {
             favorites = f
-            store.saveFavorites(f)
+            run { val v = f; persist { store.saveFavorites(v) } }
         }
         val t = trash.filterKeys { it in ids }
         if (t.size != trash.size) {
             trash = t
-            store.saveTrash(t)
+            run { val v = t; persist { store.saveTrash(v) } }
         }
         val a = albums.mapValues { (_, v) -> v.filter { it in ids } }
         if (a != albums) {
             albums = a
-            store.saveAlbums(a)
+            run { val v = a; persist { store.saveAlbums(v) } }
         }
     }
 
@@ -93,13 +107,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(item: MediaItem) {
         favorites = if (item.id in favorites) favorites - item.id else favorites + item.id
-        store.saveFavorites(favorites)
+        run { val v = favorites; persist { store.saveFavorites(v) } }
     }
 
     fun setFavorite(items: List<MediaItem>, value: Boolean) {
         val ids = items.map { it.id }
         favorites = if (value) favorites + ids else favorites - ids.toSet()
-        store.saveFavorites(favorites)
+        run { val v = favorites; persist { store.saveFavorites(v) } }
     }
 
     // ---------------- Album ----------------
@@ -115,21 +129,21 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun createAlbum(name: String): Boolean {
         if (name.isBlank() || name in albums) return false
         albums = albums + (name to emptyList<Long>())
-        store.saveAlbums(albums)
+        run { val v = albums; persist { store.saveAlbums(v) } }
         return true
     }
 
     fun addToAlbum(name: String, items: List<MediaItem>) {
         val current = albums[name] ?: emptyList()
         albums = albums + (name to (current + items.map { it.id }).distinct())
-        store.saveAlbums(albums)
+        run { val v = albums; persist { store.saveAlbums(v) } }
     }
 
     fun removeFromAlbum(name: String, items: List<MediaItem>) {
         val remove = items.map { it.id }.toSet()
         val current = albums[name] ?: return
         albums = albums + (name to current.filter { it !in remove })
-        store.saveAlbums(albums)
+        run { val v = albums; persist { store.saveAlbums(v) } }
     }
 
     fun renameAlbum(old: String, new: String): Boolean {
@@ -137,13 +151,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         if (new == old) return true
         if (new in albums) return false
         albums = albums.entries.associate { (if (it.key == old) new else it.key) to it.value }
-        store.saveAlbums(albums)
+        run { val v = albums; persist { store.saveAlbums(v) } }
         return true
     }
 
     fun deleteAlbum(name: String) {
         albums = albums - name
-        store.saveAlbums(albums)
+        run { val v = albums; persist { store.saveAlbums(v) } }
     }
 
     // ---------------- Sampah ----------------
@@ -151,12 +165,12 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun moveToTrash(items: List<MediaItem>) {
         val now = System.currentTimeMillis()
         trash = trash + items.associate { it.id to now }
-        store.saveTrash(trash)
+        run { val v = trash; persist { store.saveTrash(v) } }
     }
 
     fun restore(items: List<MediaItem>) {
         trash = trash - items.map { it.id }.toSet()
-        store.saveTrash(trash)
+        run { val v = trash; persist { store.saveTrash(v) } }
     }
 
     /** Item di sampah yang sudah melewati batas hari pada pengaturan. */
@@ -177,9 +191,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         trash = trash - gone
         favorites = favorites - gone
         albums = albums.mapValues { (_, v) -> v.filter { it !in gone } }
-        store.saveTrash(trash)
-        store.saveFavorites(favorites)
-        store.saveAlbums(albums)
+        run { val v = trash; persist { store.saveTrash(v) } }
+        run { val v = favorites; persist { store.saveFavorites(v) } }
+        run { val v = albums; persist { store.saveAlbums(v) } }
         refresh()
     }
 
@@ -199,6 +213,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         settings = transform(settings)
-        store.saveSettings(settings)
+        run { val v = settings; persist { store.saveSettings(v) } }
     }
 }

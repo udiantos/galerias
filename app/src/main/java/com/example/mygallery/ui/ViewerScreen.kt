@@ -55,7 +55,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +74,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
+import com.example.mygallery.data.thumbRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -100,7 +102,7 @@ fun ViewerScreen(
     onClose: () -> Unit,
 ) {
     val ctx = LocalContext.current
-    val list = remember { req.items.toMutableStateList() }
+    var list by remember { mutableStateOf(req.items) }
     val pager = rememberPagerState(
         initialPage = req.index.coerceIn(0, (req.items.size - 1).coerceAtLeast(0))
     ) { list.size }
@@ -113,9 +115,16 @@ fun ViewerScreen(
 
     // Sinkronkan daftar dengan keadaan terbaru (misal setelah dihapus / dibuang ke sampah / dipulihkan).
     LaunchedEffect(vm.media, vm.trash) {
-        val existing = HashSet<Long>()
-        for (m in vm.media) existing.add(m.id)
-        list.removeAll { it.id !in existing || (it.id in vm.trash) != req.trash }
+        val media = vm.media
+        val trash = vm.trash
+        val current = list
+        // Hitung di thread background, lalu ganti list sekali saja (bukan hapus satu-satu).
+        val updated = withContext(Dispatchers.Default) {
+            val existing = HashSet<Long>(media.size * 2)
+            for (m in media) existing.add(m.id)
+            current.filter { it.id in existing && (it.id in trash) == req.trash }
+        }
+        if (updated.size != current.size) list = updated
     }
     LaunchedEffect(list.size) { if (list.isEmpty()) onClose() }
     LaunchedEffect(pager.currentPage) { zoomed = false }
@@ -259,7 +268,7 @@ private fun VideoPage(item: MediaItem, onTap: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = item.uri,
+            model = thumbRequest(ctx, item, 1024),
             contentDescription = item.name,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
