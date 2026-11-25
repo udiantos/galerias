@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -34,7 +35,7 @@ import com.example.mygallery.GalleryViewModel
 fun SettingsScreen(vm: GalleryViewModel, onOpenClean: () -> Unit) {
     val s = vm.settings
 
-    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize()) {
         TopAppBar(title = { Text("Setelan") })
 
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -142,7 +143,7 @@ fun SettingsScreen(vm: GalleryViewModel, onOpenClean: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.padding(bottom = 24.dp))
+            Spacer(Modifier.height(24.dp + LocalBottomInset.current))
         }
     }
 }

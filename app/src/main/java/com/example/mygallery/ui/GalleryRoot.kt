@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -286,23 +289,14 @@ private fun GalleryMain(vm: GalleryViewModel) {
         if (showClean) showClean = false else openAlbum = null
     }
 
+    val barVisible = !showClean && openAlbum == null
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomInset = if (barVisible) navInset + FloatingBarHeight else navInset
+
     Box(Modifier.fillMaxSize()) {
+      CompositionLocalProvider(LocalBottomInset provides bottomInset) {
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                if (!showClean && openAlbum == null) {
-                    NavigationBar {
-                        tabs.forEachIndexed { index, (label, icon) ->
-                            NavigationBarItem(
-                                selected = tab == index,
-                                onClick = { tab = index },
-                                icon = { Icon(icon, contentDescription = label) },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
-                }
-            },
         ) { padding ->
             Box(Modifier.padding(padding).fillMaxSize()) {
                 val album = openAlbum
@@ -354,6 +348,16 @@ private fun GalleryMain(vm: GalleryViewModel) {
                     else -> SettingsScreen(vm, onOpenClean = { showClean = true })
                 }
             }
+        }
+      }
+
+        if (barVisible) {
+            FloatingNavBar(
+                tabs = tabs,
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
 
         SnackbarHost(

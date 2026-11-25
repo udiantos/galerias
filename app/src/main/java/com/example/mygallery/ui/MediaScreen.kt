@@ -1,6 +1,12 @@
 package com.example.mygallery.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -11,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +58,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -85,6 +93,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.mygallery.GalleryViewModel
 import com.example.mygallery.data.MediaItem
 import kotlinx.coroutines.Dispatchers
@@ -260,6 +269,8 @@ fun MediaScreen(
     var filter by rememberSaveable { mutableStateOf(MediaFilter.ALL) }
     var moreMenu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
+    var showJump by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val selecting = selected.isNotEmpty()
     val focus = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
@@ -334,7 +345,44 @@ fun MediaScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+    if (showJump) {
+        val months = remember(display) {
+            val out = ArrayList<Pair<String, Int>>()
+            var last = ""
+            display.entries.forEachIndexed { i, e ->
+                if (e is HeaderEntry && e.month != last) {
+                    last = e.month
+                    out.add(e.month to i)
+                }
+            }
+            out
+        }
+        AlertDialog(
+            onDismissRequest = { showJump = false },
+            title = { Text("Lompat ke bulan") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (months.isEmpty()) Text("Belum ada foto")
+                    months.forEach { (label, index) ->
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showJump = false
+                                    scope.launch { gridState.scrollToItem(index) }
+                                }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showJump = false }) { Text("Tutup") } },
+        )
+    }
+
+    Column(Modifier.fillMaxSize()) {
         if (selecting) {
             TopAppBar(
                 title = { Text("${selected.size} dipilih") },
@@ -495,6 +543,11 @@ fun MediaScreen(
                     IconButton(onClick = { searching = true }) {
                         Icon(Icons.Filled.Search, "Cari")
                     }
+                    if (!trashMode && sortBy == 0) {
+                        IconButton(onClick = { showJump = true }) {
+                            Icon(Icons.Filled.DateRange, "Lompat ke bulan")
+                        }
+                    }
                     if (!trashMode) {
                         Box {
                             IconButton(onClick = { sortMenu = true }) {
@@ -546,10 +599,16 @@ fun MediaScreen(
                 Text("Tidak ada hasil", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            Box(Modifier.fillMaxSize()) {
+            PullToRefreshBox(
+                isRefreshing = vm.refreshing,
+                onRefresh = { vm.refresh(manual = true) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+              Box(Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Fixed(vm.settings.columns),
+                    contentPadding = PaddingValues(bottom = LocalBottomInset.current),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier
@@ -644,8 +703,9 @@ fun MediaScreen(
                 FastScroller(
                     state = gridState,
                     entries = display.entries,
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                    modifier = Modifier.fillMaxSize(),
                 )
+              }
             }
         }
     }
@@ -657,13 +717,16 @@ private fun DateHeader(label: String) {
         label,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 6.dp),
-        style = MaterialTheme.typography.titleSmall,
+            .padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = 12.dp),
+        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
         fontWeight = FontWeight.SemiBold,
     )
 }
 
-/** Penggeser cepat: muncul saat scroll, tarik untuk lompat; label bulan tampil saat ditarik. */
+/**
+ * Penggeser cepat: muncul saat scroll. Pegangannya besar dan bereaksi langsung saat disentuh
+ * (tanpa menunggu geser). Label bulan tampil di sebelah kiri pegangan saat ditarik.
+ */
 @Composable
 private fun FastScroller(state: LazyGridState, entries: List<GridEntry>, modifier: Modifier = Modifier) {
     if (entries.size < 40) return
@@ -680,12 +743,12 @@ private fun FastScroller(state: LazyGridState, entries: List<GridEntry>, modifie
         if (scrolling || dragging) {
             visible = true
         } else {
-            delay(1400)
+            delay(2500)
             visible = false
         }
     }
 
-    val thumbH = with(LocalDensity.current) { 56.dp.toPx() }
+    val thumbH = with(LocalDensity.current) { 72.dp.toPx() }
     val firstIdx = state.firstVisibleItemIndex
     val realFraction = (firstIdx.toFloat() / (count - 1).coerceAtLeast(1)).coerceIn(0f, 1f)
     val fraction = if (dragging) dragFraction else realFraction
@@ -693,12 +756,8 @@ private fun FastScroller(state: LazyGridState, entries: List<GridEntry>, modifie
     val countNow by rememberUpdatedState(count)
     val trackNow by rememberUpdatedState(trackH)
 
-    Box(
-        modifier
-            .fillMaxHeight()
-            .width(48.dp)
-            .onSizeChanged { trackH = it.height },
-    ) {
+    // Kotak ini seluas grid supaya label tidak terpotong; hanya pegangan yang menangkap sentuhan.
+    Box(modifier.onSizeChanged { trackH = it.height }) {
         if (visible || dragging) {
             val y = (fraction * (trackH - thumbH).coerceAtLeast(0f)).roundToInt()
             val idx = if (dragging) (dragFraction * (count - 1)).roundToInt() else firstIdx
@@ -710,19 +769,21 @@ private fun FastScroller(state: LazyGridState, entries: List<GridEntry>, modifie
                         .align(Alignment.TopEnd)
                         .offset {
                             IntOffset(
-                                -56.dp.roundToPx(),
-                                y + (thumbH / 2 - 16.dp.toPx()).roundToInt(),
+                                -76.dp.roundToPx(),
+                                y + (thumbH / 2 - 20.dp.toPx()).roundToInt(),
                             )
                         },
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    tonalElevation = 4.dp,
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                    tonalElevation = 0.dp,
                 ) {
                     Text(
                         label,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        softWrap = false,
                     )
                 }
             }
@@ -731,21 +792,29 @@ private fun FastScroller(state: LazyGridState, entries: List<GridEntry>, modifie
                 Modifier
                     .align(Alignment.TopEnd)
                     .offset { IntOffset(0, y) }
-                    .size(width = 40.dp, height = 56.dp)
+                    .size(width = 64.dp, height = 72.dp)
                     .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragStart = {
-                                dragFraction = realFractionNow
-                                dragging = true
-                            },
-                            onDragEnd = { dragging = false },
-                            onDragCancel = { dragging = false },
-                        ) { change, dy ->
-                            change.consume()
-                            val range = (trackNow - thumbH).coerceAtLeast(1f)
-                            dragFraction = (dragFraction + dy / range).coerceIn(0f, 1f)
-                            val target = (dragFraction * (countNow - 1)).roundToInt()
-                            scope.launch { state.scrollToItem(target) }
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            down.consume()
+                            dragFraction = realFractionNow
+                            dragging = true
+                            var go = true
+                            while (go) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change == null || !change.pressed) {
+                                    go = false
+                                } else {
+                                    val dy = change.positionChange().y
+                                    change.consume()
+                                    val range = (trackNow - thumbH).coerceAtLeast(1f)
+                                    dragFraction = (dragFraction + dy / range).coerceIn(0f, 1f)
+                                    val target = (dragFraction * (countNow - 1)).roundToInt()
+                                    scope.launch { state.scrollToItem(target) }
+                                }
+                            }
+                            dragging = false
                         }
                     },
             ) {
@@ -753,10 +822,10 @@ private fun FastScroller(state: LazyGridState, entries: List<GridEntry>, modifie
                     Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 6.dp)
-                        .width(6.dp)
-                        .height(40.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(MaterialTheme.colorScheme.primary),
+                        .width(if (dragging) 14.dp else 10.dp)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = if (dragging) 0.7f else 0.45f)),
                 )
             }
         }

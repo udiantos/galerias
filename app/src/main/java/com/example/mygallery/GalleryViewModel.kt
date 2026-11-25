@@ -70,13 +70,24 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------- Memuat ----------------
 
-    fun refresh() {
+    /** True hanya saat pengguna menarik layar untuk refresh (supaya indikator tidak muncul di refresh otomatis). */
+    var refreshing by mutableStateOf(false)
+        private set
+    private var refreshGen = 0
+
+    fun refresh(manual: Boolean = false) {
         refreshJob?.cancel()
+        val gen = ++refreshGen
+        if (manual) refreshing = true
         refreshJob = viewModelScope.launch {
-            val list = withContext(Dispatchers.IO) { repo.load() }
-            media = list
-            loaded = true
-            prune(list)
+            try {
+                val list = withContext(Dispatchers.IO) { repo.load() }
+                media = list
+                loaded = true
+                prune(list)
+            } finally {
+                if (gen == refreshGen) refreshing = false
+            }
         }
     }
 

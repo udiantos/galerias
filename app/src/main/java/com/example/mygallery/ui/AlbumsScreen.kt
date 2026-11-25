@@ -52,7 +52,7 @@ import com.example.mygallery.data.MediaItem
 fun AlbumsScreen(vm: GalleryViewModel, onOpen: (AlbumRef) -> Unit) {
     var creating by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Album") },
             actions = {
@@ -64,7 +64,12 @@ fun AlbumsScreen(vm: GalleryViewModel, onOpen: (AlbumRef) -> Unit) {
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                top = 12.dp,
+                end = 12.dp,
+                bottom = 12.dp + LocalBottomInset.current,
+            ),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
