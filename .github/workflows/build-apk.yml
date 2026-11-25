@@ -5,11 +5,39 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Terapkan zip dari folder incoming
+        id: apply
+        run: |
+          shopt -s nullglob
+          zips=(incoming/*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for z in "${zips[@]}"; do
+            echo "Mengekstrak $z"
+            unzip -o -q "$z" -x ".github/*" -d .
+            rm -f "$z"
+          done
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+
+      - name: Simpan hasil ekstrak ke repo
+        if: steps.apply.outputs.applied == 'true'
+        run: |
+          git config user.name "galeriku-bot"
+          git config user.email "galeriku-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "Terapkan update dari incoming (build ${{ github.run_number }})" || echo "Tidak ada perubahan"
+          git push origin HEAD:${{ github.ref_name }}
 
       - uses: actions/setup-java@v5
         with:
@@ -23,8 +51,14 @@ jobs:
       - name: Build release APK
         run: gradle assembleRelease --no-daemon --stacktrace
 
-      - uses: actions/upload-artifact@v4
+      - name: Siapkan APK
+        run: cp app/build/outputs/apk/release/app-release.apk Galeriku.apk
+
+      - name: Terbitkan Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: Galeriku-APK
-          path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
+          tag_name: build-${{ github.run_number }}
+          name: Galeriku build ${{ github.run_number }}
+          target_commitish: ${{ github.ref_name }}
+          files: Galeriku.apk
+          make_latest: true
