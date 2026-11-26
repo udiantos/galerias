@@ -4,15 +4,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Hapus sisa folder paket lama (com.example) kalau masih ada di repo, supaya tidak bentrok.
+file("src/main/java/com/example").deleteRecursively()
+
 // Nomor build dari GitHub Actions; dipakai sebagai versionCode agar tiap update bisa menimpa yang lama.
 val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toIntOrNull() ?: 1
 
 android {
-    namespace = "com.example.mygallery"
+    namespace = "com.alpa.galeriku"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.mygallery"
+        applicationId = "com.alpa.galeriku"
         minSdk = 30
         targetSdk = 35
         versionCode = runNumber

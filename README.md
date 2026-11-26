@@ -12,7 +12,6 @@ Aplikasi galeri Android buatan sendiri (Kotlin + Jetpack Compose). Membaca foto 
 - Sampah: foto yang dihapus disembunyikan dan bisa dipulihkan; tombol "Urungkan" setelah menghapus
 - Setelan hapus: **pindahkan ke sampah** atau **hapus permanen**
 - Tawaran hapus permanen otomatis untuk sampah yang sudah lewat 7 / 30 / 60 hari (atau manual)
-- Bersihkan duplikat (ukuran file + resolusi sama)
 - Tema terang / gelap / ikut sistem
 
 ## Cara mendapatkan APK (tanpa Android Studio)
